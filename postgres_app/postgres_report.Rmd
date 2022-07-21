@@ -1,0 +1,45 @@
+---
+title: "Postgres Report"
+date: "`r Sys.Date()`"
+author: "Brian Syzdek"
+always_allow_html: true
+output: 
+    html_document:
+      toc: true
+      toc_depth: 3
+      toc_float: true
+      self_contained: yes
+      mode: selfcontained
+      theme: journal
+params:
+  report_format: NA
+  report_table: NA
+---
+
+```{r setup, include=FALSE}
+# These options are customizable
+knitr::opts_chunk$set(echo = FALSE)
+# Libraries to generate nice tables
+library(kableExtra)
+library(knitr)
+# Printing options depending on report format
+if(params$report_format == 'html'){
+  options(knitr.table.format = 'html')
+  } else if (params$report_format == 'pdf') {
+    options(knitr.table.format = 'latex')
+  } else {
+    options(knitr.table.format = 'markdown')
+  }
+```
+
+## R Markdown
+Following is generic output from rmarkdown:
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+```{r cars}
+# Output modified table in nice format
+params$report_table %>% 
+  kable() %>% 
+  kable_styling(.,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
