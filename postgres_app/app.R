@@ -13,21 +13,89 @@ library(rhandsontable) # for editable datatable
 library(lubridate) # for handling dates
 library(dplyr) # for data manipulation
 library(dbplyr) # Required for database manipulation
+library(shinyauthr) # For password
+library(readxl) # To read external file with password info
 
 # UI ----------------------------------------------------------------------
 
   # UI is user inputs and outputs
 ui <- fluidPage(
+###*** Password modals
+  # add logout button UI
+  div(class = "pull-right", shinyauthr::logoutUI(id = "logout")),
+  # add login panel UI function
+  shinyauthr::loginUI(id = "login"),
+  uiOutput("sidebarLayout_ui")
+    # sidebarLayout(
+    #   sidebarPanel(
+    #     h1("Data Setup"), # Title
+    #   # Select table and give schema info. Rendered in server section below
+    #     h2("Select Table"),
+    #     uiOutput("select_table"),
+    #   # Select columns to include in datatable. Rendered in server
+    #     h2("Select Columns to Include"),
+    #     uiOutput("select_columns_ui")
+    #   ),
+    #   mainPanel(
+    #     h1("Records"),
+    #     h2("All Records. Click to include."),
+    #     DTOutput("all_records"),
+    #     h2("Selected Records. Can edit"),
+    #     rHandsontableOutput("selected_table"),
+    #     br(),
+    #     hr(),
+    #   # Row with output options
+    #     fluidRow(
+    #       h2("Output Records to file or report"),
+    #       column(6,
+    #       # Will save records to csv
+    #         h3("Download csv"),
+    #         downloadButton(
+    #           outputId = "save_all_records", 
+    #           label = "Download"
+    #           )
+    #         ), # End column
+    #       column(6,
+    #       h3("Download Report"),
+    #       # Choose report format (limited options here)
+    #         radioButtons(
+    #           inputId = "report_format",
+    #           label = "Choose format for report",
+    #           choices =
+    #             c("HTML" = "html"), inline = TRUE
+    #         ),
+    #       # To generate report
+    #         downloadButton(
+    #           outputId = "generate_report",
+    #           label = "Generate Report",
+    #           icon = shiny::icon("file-contract") # Optional icon
+    #           )
+    #       ) # End column
+    #     ) # End fluidRow
+    #   ) # End mainPanel
+    # ) # End sidebarLayout
+)
+
+# Server ------------------------------------------------------------------
+
+server <- function(input, output) {
+# Rewrote shinyauthr loginserver script to be case insensitive user_name, comment out if want user_name
+  # case sensitive
+  source("shinyauthr_login_rewrite.R")
+
+###*** UI moved here to renderUI to user shinyauthr
+  output$sidebarLayout_ui <- renderUI({
+    req(credentials()$user_auth)
     sidebarLayout(
       sidebarPanel(
         h1("Data Setup"), # Title
-      # Select table and give schema info. Rendered in server section below
+        # Select table and give schema info. Rendered in server section below
         h2("Select Table"),
         uiOutput("select_table"),
-      # Select columns to include in datatable. Rendered in server
+        # Select columns to include in datatable. Rendered in server
         h2("Select Columns to Include"),
         uiOutput("select_columns_ui")
-      ), # final sidebar paren
+      ),
       mainPanel(
         h1("Records"),
         h2("All Records. Click to include."),
@@ -35,36 +103,88 @@ ui <- fluidPage(
         h2("Selected Records. Can edit"),
         rHandsontableOutput("selected_table"),
         br(),
-        h2("Output Records to file or report"),
-      # Will save records to csv
-        h3("Download csv"),
-        downloadButton(
-          outputId = "save_all_records", 
-          label = "Download"
-          ),
-      # Choose report format (limited options here)
-        br(),
         hr(),
-        h3("Download Report"),
-        radioButtons(
-          inputId = "report_format",
-          label = "Choose format for report",
-          choices =
-            c("HTML" = "html"), inline = TRUE
-        ),
-      # To generate report
-        downloadButton(
-          outputId = "generate_report",
-          label = "Generate Report",
-          icon = shiny::icon("file-contract") # Optional icon
-          )
-      )
+        # Row with output options
+        fluidRow(
+          h2("Output Records to file or report"),
+          column(6,
+                 # Will save records to csv
+                 h3("Download csv"),
+                 downloadButton(
+                   outputId = "save_all_records", 
+                   label = "Download"
+                 )
+          ), # End column
+          column(6,
+                 h3("Download Report"),
+                 # Choose report format (limited options here)
+                 radioButtons(
+                   inputId = "report_format",
+                   label = "Choose format for report",
+                   choices =
+                     c("HTML" = "html"), inline = TRUE
+                 ),
+                 # To generate report
+                 downloadButton(
+                   outputId = "generate_report",
+                   label = "Generate Report",
+                   icon = shiny::icon("file-contract") # Optional icon
+                 )
+          ) # End column
+        ) # End fluidRow
+      ) # End mainPanel
+    ) # End sidebarLayout
+  })
+  
+# Password ----------------------------------------------------------------
+  password_data <- readxl::read_xlsx("password_data_file.xlsx")
+  user_base <- password_data %>% 
+    mutate(
+      user = tolower(user_name), # tolower to make case insensitive
+      password = user_password,
+      permissions = rep("standard", nrow(.)),
+      name = paste(user_first_name, user_last_name)
     )
-)
-
-# Server ------------------------------------------------------------------
-
-server <- function(input, output) {
+  
+  ###*** Following sets up dataframe from collected spreadsheet with user information
+  ### credentials()$user_auth will then be true when correct combo entered, use to validate
+  credentials <- loginServer( # removed shinyauthr::loginServer to make case insensitive
+    id = "login",
+    data = user_base,
+    user_col = user,
+    pwd_col = password,
+    log_out = reactive(logout_init())
+  )
+  
+  # call the logout module with reactive trigger to hide/show the module based on password success
+  logout_init <- shinyauthr::logoutServer(
+    id = "logout",
+    active = reactive(credentials()$user_auth)
+  )
+  
+  ###*** Logout button and action- will refresh page- used instead of logoutServer b/c rest of ui needs to update as on load
+  
+  output$logout_button_ui <- renderUI({
+    req(credentials()$user_auth)
+    shiny::actionButton("logout_button", "Log Out/Manage Password", 
+                        class = "btn-danger", style = "color: white; padding: 8px;")
+  })
+  
+  observeEvent(input$logout_button,{
+    refresh()
+  })
+  
+  ###*** Close password page and open sidebar and mainpage
+  observe({
+    if(credentials()$user_auth) {
+      # Removes password page upon success
+      shinyjs::removeClass(selector = "body", class = "sidebar-collapse")
+      shinyjs::hide("password_div") # password help hide/show only at login
+    } else {
+      shinyjs::addClass(selector = "body", class = "sidebar-collapse")
+      shinyjs::show("password_div") # password help hide/show only at login
+    }
+  })
 
 # Establish Datbase Connection --------------------------------------------
   # This can be called outside of server in global. 
@@ -153,7 +273,8 @@ server <- function(input, output) {
       tbl({input$table_select}) %>% # Selected table
       head() %>% # Only returns a few records in case table is long
       dplyr::select({input$select_columns}) %>% # Only selected columns
-      collect() # Render to tibble
+      collect() %>% # Render to tibble
+      mutate(table_key = paste(input$table_select, rownames(.), sep = "_"), .before = 1)
   })
   
 # Renders table to display in output
@@ -162,7 +283,7 @@ server <- function(input, output) {
       all_records_data$df,
       options = list(
         scrollX = TRUE # to scroll across screen for wide records
-      )
+      )#,selection = 'single'
     )
   })
   
@@ -172,24 +293,95 @@ server <- function(input, output) {
     df = data.frame() # initialize
   )
   
-# Will update reactive value to include selected records from all records
-  observe({
+# Will update reactive value to include new selected records from all records when datatable clicked
+  # will merge with already selected records, including edited records
+  observeEvent(input$all_records_rows_selected,{
     req(input$all_records_rows_selected) # Need selected records
-    selected_records_data$df <- all_records_data$df[input$all_records_rows_selected,]
+  # If no records selected, then reactiveValues just the selected record
+    if(nrow(selected_records_data$df) == 0){
+      selected_records_data$df <- all_records_data$df[input$all_records_rows_selected,] %>% 
+        # I've modified across all variables to be character, so can join tables with different column types
+        # If want to preserve column types, comment out mutate(across(everything()... and uncomment
+        # mutate(across(where(is.POSIXct..., needed b/c Modify time variables b/c rhandsontable can't handle
+       # mutate(across(where(is.POSIXct), ~as.character(.x)))
+        mutate(across(everything(), ~as.character(.x)))
+    # If already have selected records, then get new records, those that don't match table_key
+    } else{
+      new_rows <- all_records_data$df[input$all_records_rows_selected,] %>% 
+      # I've modified across all variables to be character, so can join tables with different column types
+        # If want to preserve column types, comment out mutate(across(everything()... and uncomment
+        # mutate(across(where(is.POSIXct..., needed b/c Modify time variables b/c rhandsontable can't handle
+        # mutate(across(where(is.POSIXct), ~as.character(.x))) %>% 
+        mutate(across(everything(), ~as.character(.x))) %>% 
+      # This will include new records, those without matching "table_key"
+        anti_join(., hot_to_r(input$selected_table), by = "table_key")
+    # Merge records already selected with new records. If not done, selected records will erase, with 
+      # each table click, and erase edited rows
+      selected_records_data$df <- bind_rows(
+        hot_to_r(input$selected_table),  
+        new_rows 
+      )
+    }
   })
   
 # Render selected records. Rhandsontable b/c it is editable table
   output$selected_table <- renderRHandsontable(
     rhandsontable(
-      selected_records_data$df %>% 
-      # Modify time variables b/c rhandsontable can't handle
-        mutate(across(where(is.POSIXct), ~as.character(.x)))
+      selected_records_data$df,
+      selectCallback = TRUE,readOnly = TRUE
     )
   )
-  # Will retrieve selected records that have been modified in download file below
+  
+
+# Generate modal to edit table --------------------------------------------
+
+# Generate an rhandsontable that will allow editing that is a selected row from selected records
+  output$rhandsontable_selected_row <- renderRHandsontable({
+    req(input$selected_table) # Need to have selected records
+    out <-  hot_to_r (input$selected_table) # dataframe with all selected records
+  # Generate rhandsontable of selected row
+    rhandsontable(
+      # input$<table_name>_select$select$r gives row number of clicked row
+      out[input$selected_table_select$select$r, ] 
+      ) %>% 
+      # This prevents the key column from being changed, can comment if it's ok to edit, but may create  conflicts
+        hot_col("table_key", readOnly = TRUE)
+  })
+  
+# Generate a modal of selected row that user can edit
+  observeEvent(input$selected_table_select$select$r,{ # wait until row clicked
+    showModal(
+      modalDialog(title = "Edit Selected Row",
+                  rHandsontableOutput("rhandsontable_selected_row"), # rhandsontable of selected row
+                  size = "l",
+                # Button options to dismiss without edit or to commit edit
+                  footer = tagList(modalButton("No edit"), 
+                                   actionButton("save_edit", "Save edit"))
+                  )
+              )
+            })
+  
+# Reactive values to hold the row that will be edited in modal
+  edit_selected_row <- reactiveValues(
+    df = data.frame() # initialize
+  )
+  
+# When modal appears, capture entered data
+  observe({
+    req(input$rhandsontable_selected_row)
+  # hot_to_r converts handsontable to r dataframe, including edited data, save to reactiveValue
+    edit_selected_row$df <-  hot_to_r(input$rhandsontable_selected_row) 
+  })
+  
+# When user clicks "Save edits" will replace the selected row in selected records with edited row in modal
+  observeEvent(input$save_edit,{
+    selected_records_data$df[input$selected_table_select$select$r, ]  <- edit_selected_row$df 
+    removeModal() # Modal removed after saving
+  })
+  
 
 # Output- download csv and report -----------------------------------------
-
+  # Will retrieve selected records that have been modified in download file below
   ## Gives exact time to avoid duplicate file names
   humanTime <- function() format(Sys.time(), "%Y%m%d-%H%M%OS")
   
